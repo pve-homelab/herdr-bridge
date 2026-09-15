@@ -23,13 +23,23 @@ No harness (Pi, OpenCode, etc.) is required.
 
 ## Install
 
-From the crate root (Linux, macOS, or WSL2):
+**From GitHub (no clone):**
 
 ```bash
-cargo build
+cargo install --git https://github.com/pve-homelab/herdr-bridge.git --locked
 ```
 
-Binary: `./target/debug/herdr-http-plugin` (release: `./target/release/herdr-http-plugin`).
+**Clone and install / build** (Linux, macOS, or WSL2):
+
+```bash
+git clone https://github.com/pve-homelab/herdr-bridge.git
+cd herdr-bridge
+cargo install --path . --locked   # → ~/.cargo/bin/herdr-http-plugin
+# or:
+cargo build --release             # → ./target/release/herdr-http-plugin
+```
+
+See the root [README.md](../README.md) for a fuller quick start.
 
 ## Configuration
 
