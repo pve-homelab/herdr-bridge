@@ -34,6 +34,34 @@ pub fn extract_sse_delta(data: &str) -> Option<String> {
     None
 }
 
+fn is_sse_metadata_line(line: &str) -> bool {
+    line.starts_with(':')
+        || line.starts_with("event:")
+        || line.starts_with("id:")
+        || line.starts_with("retry:")
+}
+
+fn looks_like_payload_line(line: &str) -> bool {
+    line.starts_with('{')
+        || line.starts_with('[')
+        || (!line.is_empty() && !is_sse_metadata_line(line))
+}
+
+fn delta_from_payload_line(line: &str) -> Option<String> {
+    if let Ok(v) = serde_json::from_str::<Value>(line) {
+        if let Some(d) = v
+            .pointer("/choices/0/delta/content")
+            .and_then(|x| x.as_str())
+        {
+            if !d.is_empty() {
+                return Some(d.to_string());
+            }
+        }
+        return None;
+    }
+    Some(line.to_string())
+}
+
 pub fn push_stream_buffer(buffer: &mut String, chunk: &str) -> Vec<String> {
     buffer.push_str(chunk);
     let mut deltas = Vec::new();
@@ -41,26 +69,61 @@ pub fn push_stream_buffer(buffer: &mut String, chunk: &str) -> Vec<String> {
         let line = buffer[..pos].trim_end_matches('\r').to_string();
         *buffer = buffer[pos + 1..].to_string();
         let line = line.trim();
+        if line.is_empty() || is_sse_metadata_line(line) {
+            continue;
+        }
         if let Some(rest) = line.strip_prefix("data:") {
             if let Some(d) = extract_sse_delta(rest.trim()) {
                 deltas.push(d);
             }
-        } else if !line.is_empty() {
-            if let Ok(v) = serde_json::from_str::<Value>(line) {
-                if let Some(d) = v
-                    .pointer("/choices/0/delta/content")
-                    .and_then(|x| x.as_str())
-                {
-                    if !d.is_empty() {
-                        deltas.push(d.to_string());
-                    }
-                }
-            } else {
-                deltas.push(line.to_string());
+        } else if looks_like_payload_line(line) {
+            if let Some(d) = delta_from_payload_line(line) {
+                deltas.push(d);
             }
         }
     }
     deltas
+}
+
+fn decode_utf8_and_push(byte_buf: &mut Vec<u8>, text_buf: &mut String) -> Vec<String> {
+    match std::str::from_utf8(byte_buf) {
+        Ok(text) => {
+            let deltas = push_stream_buffer(text_buf, text);
+            byte_buf.clear();
+            deltas
+        }
+        Err(e) => {
+            let valid = e.valid_up_to();
+            if valid == 0 {
+                return Vec::new();
+            }
+            let text = std::str::from_utf8(&byte_buf[..valid]).expect("valid_up_to");
+            let deltas = push_stream_buffer(text_buf, text);
+            byte_buf.drain(..valid);
+            deltas
+        }
+    }
+}
+
+async fn write_deltas<W>(
+    writer: &mut W,
+    deltas: Vec<String>,
+    full: &mut String,
+    saw_delta: &mut bool,
+) -> Result<()>
+where
+    W: AsyncWriteExt + Unpin,
+{
+    for delta in deltas {
+        *saw_delta = true;
+        full.push_str(&delta);
+        write_json_line_flush(
+            writer,
+            &json!({"event": "model.stream", "delta": delta}),
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 fn should_fallback_status(status: reqwest::StatusCode) -> bool {
@@ -104,23 +167,39 @@ where
     }
 
     let mut stream = resp.bytes_stream();
-    let mut buf = String::new();
+    let mut byte_buf = Vec::new();
+    let mut text_buf = String::new();
     let mut full = String::new();
     let mut saw_delta = false;
 
     while let Some(item) = stream.next().await {
-        let bytes = item.context("reading stream chunk")?;
-        let chunk = String::from_utf8_lossy(&bytes);
-        for delta in push_stream_buffer(&mut buf, &chunk) {
-            saw_delta = true;
-            full.push_str(&delta);
-            write_json_line_flush(
-                writer,
-                &json!({"event": "model.stream", "delta": delta}),
-            )
-            .await?;
-        }
+        let bytes = match item {
+            Ok(b) => b,
+            Err(e) if !saw_delta => {
+                warn!("stream read failed ({e}); falling back to non-stream");
+                let text =
+                    generate_completion(client, endpoint_url, kind, params, api_key).await?;
+                write_json_line_flush(
+                    writer,
+                    &json!({"id": id, "result": {"completion": text}}),
+                )
+                .await?;
+                return Ok(());
+            }
+            Err(e) => return Err(e).context("reading stream chunk"),
+        };
+        byte_buf.extend_from_slice(&bytes);
+        let deltas = decode_utf8_and_push(&mut byte_buf, &mut text_buf);
+        write_deltas(writer, deltas, &mut full, &mut saw_delta).await?;
     }
+
+    if !byte_buf.is_empty() {
+        let deltas = decode_utf8_and_push(&mut byte_buf, &mut text_buf);
+        write_deltas(writer, deltas, &mut full, &mut saw_delta).await?;
+    }
+
+    let trailing = push_stream_buffer(&mut text_buf, "\n");
+    write_deltas(writer, trailing, &mut full, &mut saw_delta).await?;
 
     if !saw_delta {
         warn!("empty stream; falling back to non-stream");
@@ -163,5 +242,19 @@ mod tests {
             "data: {\"choices\":[{\"delta\":{\"content\":\"b\"}}]}\n\ndata: [DONE]\n",
         );
         assert_eq!(d2, vec!["b".to_string()]);
+    }
+
+    #[test]
+    fn push_stream_buffer_skips_sse_metadata_and_comments() {
+        let mut buf = String::new();
+        let deltas = push_stream_buffer(
+            &mut buf,
+            ": keep-alive\n\
+             event: message\n\
+             id: 1\n\
+             retry: 3000\n\
+             data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n",
+        );
+        assert_eq!(deltas, vec!["x".to_string()]);
     }
 }

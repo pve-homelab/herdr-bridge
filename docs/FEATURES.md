@@ -114,7 +114,7 @@ Each written line ends with `\n`. Stream deltas use `write_json_line_flush` so H
 
 **Generate kind** — POST `{model?, prompt, temperature?, max_tokens?, stream}`
 
-**ChatCompletions kind** — POST `{model?, messages:[{role,user,content:prompt}], temperature?, max_tokens?, stream}`
+**ChatCompletions kind** — POST `{model?, messages:[{role:user, content:prompt}], temperature?, max_tokens?, stream}`
 
 Optional fields omitted when not provided. Response parsing tries chat `choices[0].message.content`, then `text` / `completion` / `output` / `choices[0].text`.
 

@@ -3,6 +3,8 @@
 use reqwest::Client;
 use tracing::warn;
 
+use crate::http_client::apply_auth;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EndpointKind {
     Generate,
@@ -28,8 +30,9 @@ pub fn join_endpoint(base: &str, path: &str) -> String {
     format!("{base}/{path}")
 }
 
-async fn probe(client: &Client, url: &str) -> Result<(), ProbeFail> {
-    match client.get(url).send().await {
+async fn probe(client: &Client, url: &str, api_key: Option<&str>) -> Result<(), ProbeFail> {
+    let req = apply_auth(client.get(url), api_key);
+    match req.send().await {
         Ok(resp) if resp.status().as_u16() == 404 => Err(ProbeFail::NotFound),
         Ok(_) => Ok(()),
         Err(_) => Err(ProbeFail::Unreachable),
@@ -42,7 +45,11 @@ enum ProbeFail {
     Unreachable,
 }
 
-pub async fn validate_backend(client: &Client, base_url: &str) -> BackendState {
+pub async fn validate_backend(
+    client: &Client,
+    base_url: &str,
+    api_key: Option<&str>,
+) -> BackendState {
     let base = trim_base_url(base_url);
     if base.is_empty() {
         warn!("MODEL_BASE_URL empty; model tools disabled");
@@ -52,7 +59,7 @@ pub async fn validate_backend(client: &Client, base_url: &str) -> BackendState {
     }
 
     let generate_url = join_endpoint(&base, "generate");
-    match probe(client, &generate_url).await {
+    match probe(client, &generate_url, api_key).await {
         Ok(()) => {
             return BackendState::Active {
                 endpoint_url: generate_url,
@@ -63,7 +70,7 @@ pub async fn validate_backend(client: &Client, base_url: &str) -> BackendState {
     }
 
     let chat_url = join_endpoint(&base, "chat/completions");
-    match probe(client, &chat_url).await {
+    match probe(client, &chat_url, api_key).await {
         Ok(()) => BackendState::Active {
             endpoint_url: chat_url,
             kind: EndpointKind::ChatCompletions,
@@ -103,7 +110,7 @@ mod tests {
     #[tokio::test]
     async fn empty_base_disables() {
         let client = reqwest::Client::new();
-        match validate_backend(&client, "   ").await {
+        match validate_backend(&client, "   ", None).await {
             BackendState::Disabled { reason } => assert!(!reason.is_empty()),
             _ => panic!("expected Disabled"),
         }
@@ -118,7 +125,7 @@ mod tests {
             .mount(&server)
             .await;
         let client = reqwest::Client::new();
-        match validate_backend(&client, &server.uri()).await {
+        match validate_backend(&client, &server.uri(), None).await {
             BackendState::Active {
                 endpoint_url,
                 kind: EndpointKind::Generate,
@@ -141,7 +148,7 @@ mod tests {
             .mount(&server)
             .await;
         let client = reqwest::Client::new();
-        match validate_backend(&client, &server.uri()).await {
+        match validate_backend(&client, &server.uri(), None).await {
             BackendState::Active {
                 kind: EndpointKind::ChatCompletions,
                 ..
@@ -165,7 +172,7 @@ mod tests {
             .await;
         let client = reqwest::Client::new();
         assert!(matches!(
-            validate_backend(&client, &server.uri()).await,
+            validate_backend(&client, &server.uri(), None).await,
             BackendState::Disabled { .. }
         ));
     }

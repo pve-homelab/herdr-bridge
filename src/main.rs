@@ -30,7 +30,7 @@ async fn main() -> Result<()> {
     let client = build_client()?;
     let api_key = read_api_key();
     let base = std::env::var("MODEL_BASE_URL").unwrap_or_default();
-    let state = validate_backend(&client, &base).await;
+    let state = validate_backend(&client, &base, api_key.as_deref()).await;
     match &state {
         validation::BackendState::Active {
             endpoint_url,
