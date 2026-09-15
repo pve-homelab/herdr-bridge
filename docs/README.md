@@ -23,41 +23,51 @@ No harness (Pi, OpenCode, etc.) is required.
 
 ## Install
 
-**From GitHub (no clone):**
+**Herdr (recommended)** — clones from GitHub, runs `cargo build --release`, registers the plugin:
+
+```bash
+herdr plugin install pve-homelab/herdr-bridge
+herdr plugin list
+herdr plugin config-dir pve-homelab.herdr-http-plugin
+herdr plugin action invoke pve-homelab.herdr-http-plugin.status
+```
+
+**Local link** (build yourself first; `plugin link` skips `[[build]]`):
+
+```bash
+cargo build --release
+herdr plugin link .
+```
+
+**Cargo only** (binary on `PATH`, no Herdr registry):
 
 ```bash
 cargo install --git https://github.com/pve-homelab/herdr-bridge.git --locked
-```
-
-**Clone and install / build** (Linux, macOS, or WSL2):
-
-```bash
-git clone https://github.com/pve-homelab/herdr-bridge.git
-cd herdr-bridge
-cargo install --path . --locked   # → ~/.cargo/bin/herdr-http-plugin
 # or:
-cargo build --release             # → ./target/release/herdr-http-plugin
+cargo install --path . --locked
+cargo build --release   # → ./target/release/herdr-http-plugin
 ```
 
-See the root [README.md](../README.md) for a fuller quick start.
+See the root [README.md](../README.md) for uninstall, `--ref` / `--yes`, and marketplace notes.
 
 ## Configuration
 
 | Variable | Required | Behavior |
 |----------|----------|----------|
-| `HERDR_PLUGIN_SOCKET` | Yes | Unix socket path; set by Herdr when using `--plugin`. Missing → process exit. |
 | `MODEL_BASE_URL` | For Active | Base URL (trimmed). Empty → auto-disable. Example: `http://localhost:8000/v1` |
 | `MODEL_API_KEY` | No | If set, sends `Authorization: Bearer <key>` on probes and generate requests |
+| `HERDR_PLUGIN_SOCKET` | When run as the NDJSON model bridge | Unix socket path from the host; missing → process exit |
 | `RUST_LOG` | No | Tracing filter (default `info`) |
+
+Use `herdr plugin config-dir pve-homelab.herdr-http-plugin` for user-editable config (do not write into the managed Git checkout).
 
 ## Run with Herdr
 
-Herdr discovers the plugin via `--plugin` and wires the socket path into `HERDR_PLUGIN_SOCKET`:
-
 ```bash
+herdr plugin install pve-homelab/herdr-bridge
 export MODEL_BASE_URL="http://localhost:8000/v1"
 export MODEL_API_KEY="..."   # optional
-herdr --plugin ./target/debug/herdr-http-plugin
+herdr plugin action invoke pve-homelab.herdr-http-plugin.status
 ```
 
 Point `MODEL_BASE_URL` at any OpenAI-compatible `/v1` server (e.g. Cursor-API, LM Studio) or a simple `/generate` endpoint.

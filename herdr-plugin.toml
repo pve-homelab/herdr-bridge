@@ -1,0 +1,14 @@
+id = "pve-homelab.herdr-http-plugin"
+name = "HTTP Model Bridge"
+version = "0.1.0"
+min_herdr_version = "0.7.0"
+description = "Forward Herdr model.* NDJSON RPCs to an HTTP /v1 AI endpoint with streaming, fallback, and auto-disable."
+platforms = ["linux", "macos"]
+
+[[build]]
+command = ["cargo", "build", "--release"]
+
+[[actions]]
+id = "status"
+title = "Show HTTP model bridge status"
+command = ["sh", "scripts/status.sh"]

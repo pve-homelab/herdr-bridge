@@ -1,8 +1,8 @@
 # herdr-http-plugin
 
-Herdr plugin that turns any OpenAI-compatible HTTP `/v1` model server into Herdr’s model backend — no Pi, OpenCode, or other harness required.
+Herdr plugin that turns any OpenAI-compatible HTTP `/v1` model server into a model backend — no Pi, OpenCode, or other harness required.
 
-Herdr speaks NDJSON `model.*` RPCs over a Unix domain socket. This plugin validates `MODEL_BASE_URL`, streams tokens into the TUI when possible, and falls back to a single non-stream response when streaming is unsupported. If the backend is missing or invalid, it auto-disables model tools so Herdr ignores it for generation.
+It validates `MODEL_BASE_URL`, streams tokens when possible, falls back to a single non-stream response when streaming is unsupported, and auto-disables model tools when the backend is missing or invalid.
 
 | Feature | Behavior |
 |---------|----------|
@@ -13,67 +13,106 @@ Herdr speaks NDJSON `model.*` RPCs over a Unix domain socket. This plugin valida
 
 ## Requirements
 
-- [Rust](https://rustup.rs/) (stable)
-- Herdr with `--plugin` support
-- **Linux, macOS, or WSL2** — native Windows targets do not compile yet (`tokio::net::UnixListener` is Unix-only)
+- [Herdr](https://herdr.dev/) `0.7.0+`
+- [Rust](https://rustup.rs/) / `cargo` (for install-time build)
+- **Linux, macOS, or WSL2** — native Windows MSVC/GNU does not compile yet (`UnixListener` is Unix-only)
 
-On Windows, build and run inside WSL2 (where Herdr typically runs).
+On Windows hosts, install and run inside WSL2.
 
-## Install from GitHub
+## Install with Herdr (recommended)
 
-Install the release binary with Cargo (no clone required):
-
-```bash
-cargo install --git https://github.com/pve-homelab/herdr-bridge.git --locked
-```
-
-Binary lands on your `PATH` as `herdr-http-plugin` (usually `~/.cargo/bin`).
-
-Or clone and install from a local checkout:
+Standard Herdr GitHub install — clones the repo, runs `cargo build --release`, and registers the plugin:
 
 ```bash
-git clone https://github.com/pve-homelab/herdr-bridge.git
-cd herdr-bridge
-cargo install --path . --locked
+herdr plugin install pve-homelab/herdr-bridge
 ```
 
-## Build from source
+Useful follow-ups:
+
+```bash
+herdr plugin list
+herdr plugin config-dir pve-homelab.herdr-http-plugin
+herdr plugin action invoke pve-homelab.herdr-http-plugin.status
+```
+
+Pin a revision if you want:
+
+```bash
+herdr plugin install pve-homelab/herdr-bridge --ref main
+herdr plugin install pve-homelab/herdr-bridge --yes   # skip interactive trust preview
+```
+
+Reinstall to refresh a managed checkout (there is no separate `plugin update` in Herdr v1):
+
+```bash
+herdr plugin install pve-homelab/herdr-bridge
+```
+
+Uninstall:
+
+```bash
+herdr plugin uninstall pve-homelab.herdr-http-plugin
+# or:
+herdr plugin uninstall pve-homelab/herdr-bridge
+```
+
+### Local development link
+
+`plugin link` does **not** run `[[build]]` — build first, then link:
 
 ```bash
 git clone https://github.com/pve-homelab/herdr-bridge.git
 cd herdr-bridge
 cargo build --release
+herdr plugin link .
+herdr plugin action invoke pve-homelab.herdr-http-plugin.status
 ```
 
-Debug build: `cargo build` → `./target/debug/herdr-http-plugin`  
-Release build: `./target/release/herdr-http-plugin`
-
-## Configure and run
+## Configure
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `HERDR_PLUGIN_SOCKET` | Yes | Set by Herdr when using `--plugin` |
 | `MODEL_BASE_URL` | For generation | e.g. `http://localhost:8000/v1` |
 | `MODEL_API_KEY` | No | Bearer token for the model server |
+| `HERDR_PLUGIN_SOCKET` | When launched as a socket model bridge | Set by the host that speaks the NDJSON `model.*` protocol |
 | `RUST_LOG` | No | Tracing filter (default `info`) |
+
+Put user-editable secrets under the plugin config dir (not the managed Git checkout):
+
+```bash
+herdr plugin config-dir pve-homelab.herdr-http-plugin
+```
+
+Point `MODEL_BASE_URL` at Cursor-API, LM Studio, vLLM, or any server that exposes `/v1/generate` or `/v1/chat/completions`.
+
+Example:
 
 ```bash
 export MODEL_BASE_URL="http://localhost:8000/v1"
 export MODEL_API_KEY="..."   # optional
-
-# after cargo install:
-herdr --plugin herdr-http-plugin
-
-# or from a local build:
-herdr --plugin ./target/release/herdr-http-plugin
 ```
 
-Point `MODEL_BASE_URL` at Cursor-API, LM Studio, vLLM, or any server that exposes `/v1/generate` or `/v1/chat/completions`.
+## Alternative: install the binary with Cargo
+
+If you only want the binary on `PATH` (without Herdr’s plugin registry):
+
+```bash
+cargo install --git https://github.com/pve-homelab/herdr-bridge.git --locked
+# or from a clone:
+cargo install --path . --locked
+```
+
+Binary: `~/.cargo/bin/herdr-http-plugin` (or `./target/release/herdr-http-plugin` after `cargo build --release`).
+
+## Marketplace
+
+Repos tagged with the GitHub topic [`herdr-plugin`](https://github.com/topics/herdr-plugin) show up in Herdr’s marketplace index. This plugin’s manifest is [`herdr-plugin.toml`](herdr-plugin.toml) at the repo root.
 
 ## Documentation
 
 - [docs/README.md](docs/README.md) — overview, auto-disable, streaming, fallback  
 - [ARCHITECTURE](docs/ARCHITECTURE.md) · [TUI](docs/TUI_USAGE.md) · [FEATURES](docs/FEATURES.md) · [DIAGRAMS](docs/DIAGRAMS.md)
+- Herdr plugin docs: https://herdr.dev/docs/plugins/
 
 ## License
 
